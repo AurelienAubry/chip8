@@ -22,7 +22,6 @@ impl Memory {
 }
 
 impl fmt::Debug for Memory {
-
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result{
         for i in 0..self.mem.len() {
             write!(f, "{:#x}", self.mem[i]);
