@@ -1,14 +1,13 @@
-
-use crate::memory::Memory;
 use crate::cpu::CPU;
+use crate::bus::Bus;
 use std::fmt;
 
 use crate::cpu;
 
 /// Chip8 Virtual Machine struct
 pub struct Chip8 {
-    mem: Memory,
-    cpu: CPU
+    cpu: CPU,
+    bus: Bus,
 }
 
 impl Chip8 {
@@ -20,7 +19,7 @@ impl Chip8 {
     /// A new `Chip8` struct.
     pub fn new() -> Chip8 {
         Chip8 {
-            mem: Memory::new(),
+            bus: Bus::new(),
             cpu: CPU::new()
         }
     }
@@ -31,22 +30,25 @@ impl Chip8 {
     ///
     /// - `buffer`: The bytes of the ROM to load in memory
     pub fn load_rom(&mut self, buffer: &Vec<u8>) {
-        for i in 0..buffer.len() {
-            self.mem.write_byte(cpu::PROGRAM_START + (i as u16), buffer[i]);
-        }
+        self.bus.load_rom(buffer);
     }
 
     pub fn run(&mut self) {
         loop {
-            self.cpu.cycle(&self.mem);
+            self.cpu.cycle(&mut self.bus);
+            self.bus.update_display();
+            for i in 0..90000{
+
+            }
         }
     }
 
 }
 
+/*
 impl fmt::Debug for Chip8 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result{
         write!(f, "MEMORY\n{:?}", self.mem);
         std::result::Result::Ok(())
     }
-}
+}*/

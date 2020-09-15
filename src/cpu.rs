@@ -1,4 +1,4 @@
-use crate::memory::Memory;
+use crate::bus::Bus;
 use rand;
 use rand::thread_rng;
 use rand::distributions::{Distribution, Uniform};
@@ -46,9 +46,10 @@ impl CPU {
         }        
     }
 
-    pub fn cycle(&mut self, memory : &Memory) {
-        let opcode : u16 = self.fetch(memory);
-        self.decode_and_run(opcode);
+    pub fn cycle(&mut self, bus : &mut Bus) {
+        let opcode : u16 = self.fetch(bus);
+        self.decode_and_run(opcode, bus);
+        println!("Ran {}", opcode);
     }
 
     /// Fetch instruction from memory.
@@ -60,25 +61,25 @@ impl CPU {
     /// # Returns
     ///
     /// A new `CPU` struct.
-    fn fetch(&mut self, memory : &Memory) -> u16 {
-        let mut opcode : u16 = (memory.read_byte(self.pc) as u16) << 8; 
-        opcode |= memory.read_byte(self.pc + 1) as u16;
+    fn fetch(&mut self, bus : &mut Bus) -> u16 {
+        let mut opcode : u16 = (bus.mem_read_byte(self.pc) as u16) << 8; 
+        opcode |= bus.mem_read_byte(self.pc + 1) as u16;
         self.pc += 2;
         opcode
     }
 
-    fn decode_and_run(&mut self, opcode : u16) {
+    fn decode_and_run(&mut self, opcode : u16, bus : &mut Bus) {
 
         let nnn : u16 = opcode & 0x0FFF;
         let n : u8 = (opcode & 0x000F) as u8;
-        let x : u8 = (opcode & 0x0F00) as u8;
-        let y : u8 = (opcode & 0x00F0) as u8;
+        let x : u8 = ((opcode & 0x0F00) >> 8) as u8;
+        let y : u8 = ((opcode & 0x00F0) >> 4) as u8;
         let kk : u8 = (opcode & 0x00FF) as u8;
 
         match (opcode & 0xF000) >> 12 {
             0x0 => {
                 match kk {
-                    0xE0 => self.cls(),
+                    0xE0 => self.cls(bus),
                     0xEE => self.ret(),
                     _ => panic!("Unknown instruction {:#X}", opcode)
                 }
@@ -110,7 +111,7 @@ impl CPU {
             0xA => self.ld_i_nnn(nnn),
             0xB => self.jp_0_nnn(nnn),
             0xC => self.rnd_x_kk(x, kk),
-            0xD => self.drw(x, y, n),
+            0xD => self.drw(x, y, n, bus),
 
             0xE => match kk {
                 0x9E => self.skp_x(x),
@@ -125,9 +126,9 @@ impl CPU {
                 0x18 => self.ld_st_x(x),
                 0x1E => self.add_i_x(x),
                 0x29 => self.ld_f_x(x),
-                0x33 => self.ld_b_x(x),
-                0x55 => self.ld_i_x(x),
-                0x65 => self.ld_x_i(x),
+                0x33 => self.ld_b_x(x, bus),
+                0x55 => self.ld_i_x(x, bus),
+                0x65 => self.ld_x_i(x, bus),
                 _ => panic!("Unknown instruction {:#X}", opcode)
             }
 
@@ -136,9 +137,8 @@ impl CPU {
     }
 
     /// CLS: Clear the display.
-    fn cls(&mut self) {
-        print!("Clear screen!");
-        // TODO - Display related
+    fn cls(&mut self, bus : &mut Bus) {
+        bus.clear_display();
     }
 
     /// RET:  Return from a subroutine.
@@ -208,7 +208,7 @@ impl CPU {
     /// Adds the value kk to the value of register Vx, then stores the result in Vx. 
     fn add_x_kk(&mut self, x : u8, kk : u8) {
         let vx_value = self.read_register(x);
-        self.write_register(x, vx_value + kk);
+        self.write_register(x, vx_value.wrapping_add(kk));
     }
 
     /// LD: Set Vx = Vy.
@@ -341,7 +341,16 @@ impl CPU {
     /// VF is set to 1, otherwise it is set to 0. If the sprite is positioned so part of it 
     /// is outside the coordinates of the display, it wraps around to the opposite side of the 
     /// screen.
-    fn drw(&mut self, x : u8, y : u8, n : u8) {
+    fn drw(&mut self, x : u8, y : u8, n : u8, bus : &mut Bus) {
+        let mut value;
+        let vx = self.read_register(x);
+        let vy = self.read_register(y);
+        for index in 0..n {
+            println!("Draw {} {}", x, y);
+            value = bus.mem_read_byte(self.i + index as u16);
+            bus.draw_byte(vx as usize, (vy + index) as usize, value);
+            //println!("{:#b}", bus.mem_read_byte(self.i + index as u16));
+        }
         // TODO - Display related
     }
 
@@ -399,23 +408,31 @@ impl CPU {
     /// LD - 0xFx33 : Store BCD representation of Vx in memory locations I, I+1, and I+2.
     /// The interpreter takes the decimal value of Vx, and places the hundreds digit in memory at 
     /// location in I, the tens digit at location I+1, and the ones digit at location I+2.
-    fn ld_b_x(&mut self, x : u8) {
+    fn ld_b_x(&mut self, x : u8, bus: &mut Bus) {
         let vx = self.read_register(x);
-        // TODO - Memory (bus) related
+        bus.mem_write_byte(self.i, vx / 100);
+        bus.mem_write_byte(self.i + 1, (vx % 100) / 10);
+        bus.mem_write_byte(self.i + 2, vx % 10);
     }
 
     /// LD - 0xFx55 : Store registers V0 through Vx in memory starting at location I.
     /// The interpreter copies the values of registers V0 through Vx into memory, starting at the 
     /// address in I.
-    fn ld_i_x(&mut self, x : u8) {
-        // TODO - Memory (bus) related
+    fn ld_i_x(&mut self, x : u8, bus: &mut Bus) {
+        for v_index in 0..=x {
+            let vx = self.read_register(v_index);
+            bus.mem_write_byte(self.i + v_index as u16, vx);
+        }
     }
 
     /// LD - 0xFx65 : Read registers V0 through Vx from memory starting at location I.
     /// The interpreter reads values from memory starting at location I into registers V0 
     /// through Vx.
-    fn ld_x_i(&mut self, x : u8) {
-        // TODO - Memory (bus) related
+    fn ld_x_i(&mut self, x : u8, bus: &Bus) {
+        for v_index in 0..=x {
+            let vx = bus.mem_read_byte(self.i + v_index as u16);
+            self.write_register(v_index, vx);
+        }
     }
 
     fn write_register(&mut self, x : u8, value : u8) {
