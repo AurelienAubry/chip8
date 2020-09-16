@@ -2,6 +2,7 @@ mod chip8;
 mod memory;
 mod cpu;
 mod bus;
+mod keyboard;
 mod display;
 
 use chip8::Chip8;
@@ -15,7 +16,7 @@ fn main() ->  io::Result<()> {
     let mut chip8 : Chip8 = Chip8::new();
 
     // Open and read ROM file
-    let mut file = File::open("roms/VERS")?;
+    let mut file = File::open("roms/MISSILE")?;
     let mut buffer = Vec::<u8>::new();
 
     file.read_to_end(&mut buffer)?;

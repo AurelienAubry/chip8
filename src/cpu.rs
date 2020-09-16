@@ -19,10 +19,6 @@ pub struct CPU {
     stack : [u16; 16],
     /// Random number generator
     rng: rand::rngs::ThreadRng,
-    /// Delay timer
-    dt : u8,
-    /// Sound timer
-    st : u8
 }
 
 
@@ -41,15 +37,13 @@ impl CPU {
             sp : 0,
             stack : [0;16], 
             rng : thread_rng(),
-            dt : 0,
-            st : 0,
         }        
     }
 
     pub fn cycle(&mut self, bus : &mut Bus) {
         let opcode : u16 = self.fetch(bus);
         self.decode_and_run(opcode, bus);
-        println!("Ran {}", opcode);
+        //println!("Ran {}", opcode);
     }
 
     /// Fetch instruction from memory.
@@ -114,16 +108,16 @@ impl CPU {
             0xD => self.drw(x, y, n, bus),
 
             0xE => match kk {
-                0x9E => self.skp_x(x),
-                0xA1 => self.sknp_x(x),
+                0x9E => self.skp_x(x, bus),
+                0xA1 => self.sknp_x(x, bus),
                 _ => panic!("Unknown instruction {:#X}", opcode)
             }
 
             0xF => match kk {
-                0x07 => self.ld_x_dt(x),
-                0x0A => self.ld_x_press(x),
-                0x15 => self.ld_dt_x(x),
-                0x18 => self.ld_st_x(x),
+                0x07 => self.ld_x_dt(x, bus),
+                0x0A => self.ld_x_press(x, bus),
+                0x15 => self.ld_dt_x(x, bus),
+                0x18 => self.ld_st_x(x, bus),
                 0x1E => self.add_i_x(x),
                 0x29 => self.ld_f_x(x),
                 0x33 => self.ld_b_x(x, bus),
@@ -252,6 +246,8 @@ impl CPU {
         self.write_register(x, sum as u8);
         if sum > 0xFF {
             self.write_register(0xF, 1);
+        } else {
+            self.write_register(0xF, 0);
         }
     }
 
@@ -264,9 +260,9 @@ impl CPU {
         let sub = vx - vy;
         self.write_register(x, sub as u8);
         if sub > 0 {
-            self.write_register(0xF, 0);
-        } else {
             self.write_register(0xF, 1);
+        } else {
+            self.write_register(0xF, 0);
         }
     }
 
@@ -276,7 +272,7 @@ impl CPU {
     fn shr_x(&mut self, x : u8) {
         let vx = self.read_register(x);
         self.write_register(0xF, vx & 0x1);
-        self.write_register(x, vx >> 2);
+        self.write_register(x, vx >> 1);
     }
 
     /// SUBN: Set Vx = Vy - Vx, set VF = NOT borrow.
@@ -288,9 +284,9 @@ impl CPU {
         let sub = vy - vx;
         self.write_register(x, sub as u8);
         if sub > 0 {
-            self.write_register(0xF, 0);
-        } else {
             self.write_register(0xF, 1);
+        } else {
+            self.write_register(0xF, 0);
         }
     }
 
@@ -299,7 +295,7 @@ impl CPU {
     /// Then Vx is multiplied by 2.
     fn shl_x(&mut self, x : u8) {
         let vx = self.read_register(x);
-        self.write_register(0xF, vx & 0x80);
+        self.write_register(0xF, (vx & 0x80) >> 7);
         self.write_register(x, vx << 1);
     }
 
@@ -345,51 +341,67 @@ impl CPU {
         let mut value;
         let vx = self.read_register(x);
         let vy = self.read_register(y);
+        let mut erased = false;
         for index in 0..n {
-            println!("Draw {} {}", x, y);
             value = bus.mem_read_byte(self.i + index as u16);
-            bus.draw_byte(vx as usize, (vy + index) as usize, value);
-            //println!("{:#b}", bus.mem_read_byte(self.i + index as u16));
+            if bus.draw_byte(vx as usize, (vy + index) as usize, value) {
+                erased = true;
+            }
         }
-        // TODO - Display related
+
+        if erased {
+            self.write_register(0xF, 0x1);
+        } else {
+            self.write_register(0xF, 0x0);
+        }
     }
 
     /// SKP - 0xEx9E : Skip next instruction if key with the value of Vx is pressed.
     /// Checks the keyboard, and if the key corresponding to the value of Vx is currently in the 
     /// down position, PC is increased by 2.
-    fn skp_x(&mut self, x : u8) {
-        // TODO - Keyboard related
+    fn skp_x(&mut self, x : u8, bus : &Bus) {
+        let vx = self.read_register(x);
+        if bus.is_key_pressed(vx) {
+            self.pc += 2;
+        }
     }
 
     /// SKNP - 0xExA1 : Skip next instruction if key with the value of Vx is not pressed.
     /// Checks the keyboard, and if the key corresponding to the value of Vx is currently in the 
     /// up position, PC is increased by 2.
-    fn sknp_x(&mut self, x : u8) {
-        // TODO - Keyboard related
+    fn sknp_x(&mut self, x : u8, bus : &Bus) {
+        let vx = self.read_register(x);
+        if !bus.is_key_pressed(vx) {
+            self.pc += 2;
+        }
     }
 
     /// LD - 0xFx07 : Set Vx = delay timer value.
     /// The value of DT is placed into Vx.
-    fn ld_x_dt(&mut self, x : u8) {
-        self.write_register(x, self.dt);
+    fn ld_x_dt(&mut self, x : u8, bus : &Bus) {
+        self.write_register(x, bus.get_dt());
     }
 
     /// LD - 0xFx0A : Wait for a key press, store the value of the key in Vx.
     /// All execution stops until a key is pressed, then the value of that key is stored in Vx.
-    fn ld_x_press(&mut self, x : u8) {
-        // TODO - Keyboard related
+    fn ld_x_press(&mut self, x : u8, bus : &Bus) {
+        if let Some(key) = bus.get_pressed_key() {
+            self.write_register(x, key);
+        }
     }
 
     /// LD - 0xFx15 : Set delay timer = Vx.
     /// DT is set equal to the value of Vx.
-    fn ld_dt_x(&mut self, x : u8) {
-        self.dt = self.read_register(x);
+    fn ld_dt_x(&mut self, x : u8, bus : &mut Bus) {
+        let vx = self.read_register(x);
+        bus.set_dt(vx);
     }
 
     /// LD - 0xFx18 : Set sound timer = Vx.
     /// ST is set equal to the value of Vx.
-    fn ld_st_x(&mut self, x : u8) {
-        self.st = self.read_register(x);
+    fn ld_st_x(&mut self, x : u8, bus : &mut Bus) {
+        let vx = self.read_register(x);
+        bus.set_st(vx);
     }
 
     /// ADD - 0xFx1E : Set I = I + Vx.
@@ -402,7 +414,8 @@ impl CPU {
     /// The value of I is set to the location for the hexadecimal sprite corresponding to the 
     /// value of Vx.
     fn ld_f_x(&mut self, x : u8) {
-        // TODO - Sprites in memory related
+        let vx = self.read_register(x) as u16;
+        self.i = vx * 5;
     }
 
     /// LD - 0xFx33 : Store BCD representation of Vx in memory locations I, I+1, and I+2.
