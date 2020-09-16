@@ -1,19 +1,18 @@
-mod chip8;
-mod memory;
-mod cpu;
 mod bus;
-mod keyboard;
+mod chip8;
+mod cpu;
 mod display;
+mod keyboard;
+mod memory;
 
 use chip8::Chip8;
 use std::fs::File;
 use std::io;
 use std::io::prelude::*;
 
-fn main() ->  io::Result<()> {
-
+fn main() -> io::Result<()> {
     // Create Chip8
-    let mut chip8 : Chip8 = Chip8::new();
+    let mut chip8: Chip8 = Chip8::new();
 
     // Open and read ROM file
     let mut file = File::open("roms/MISSILE")?;
@@ -23,11 +22,9 @@ fn main() ->  io::Result<()> {
 
     // Load ROM in Chip8 memory
     chip8.load_rom(&buffer);
-    //println!("{:?}", chip8);
 
+    // Start the emulator
     chip8.run();
 
     Ok(())
-
 }
-
