@@ -1,5 +1,9 @@
 # CHIP-8 Emulator
 
+<p float="left">
+    <img src="images/blinky.png" width="425"/> 
+    <img src="images/invaders.png" width="425"/> 
+</p>
 
 This is a CHIP-8 Emulator, written in rust.
 
